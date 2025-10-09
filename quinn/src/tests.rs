@@ -11,6 +11,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket},
     str,
     sync::Arc,
+    usize,
 };
 
 use crate::runtime::TokioRuntime;
@@ -252,6 +253,125 @@ async fn ip_blocking() {
         }
     );
     server_task.abort();
+}
+
+#[tokio::test]
+async fn drop_read_stream() {
+    let _guard = subscribe();
+    let endpoint_factory = EndpointFactory::new();
+
+    let client = endpoint_factory.endpoint();
+    let server = endpoint_factory.endpoint();
+    let server_address = server.local_addr().unwrap();
+
+    let data = [0u8; 64];
+
+    // get server to start accepting incoming connections
+    // open a uni directional conn
+    // write to the send stream
+    let server_task = tokio::spawn(async move {
+        let new_conn = server.accept().await.unwrap().await.unwrap();
+        let mut s = new_conn.open_uni().await.unwrap();
+        s.write_all(&data).await.unwrap();
+        s.finish().unwrap();
+
+        _ = s.stopped().await;
+    });
+
+    // connect client to server
+    let new_conn = client
+        .connect(server_address, "localhost")
+        .unwrap()
+        .await
+        .expect("connect");
+
+    // accept uni directional connection
+    let mut stream = new_conn.accept_uni().await.expect("incoming streams");
+
+    // read data from stream
+    let _stream_data = stream.read_to_end(usize::MAX).await.expect("read_to_end");
+
+    assert_eq!(stream.all_data_read, true);
+
+    new_conn.close(0u32.into(), b"done");
+    // stream.stop(0u32.into());
+
+    drop(stream);
+    server_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn drop_unread_stream_before_close() {
+    let _guard = subscribe();
+    let endpoint_factory = EndpointFactory::new();
+
+    let client = endpoint_factory.endpoint();
+    let server = endpoint_factory.endpoint();
+    let server_address = server.local_addr().unwrap();
+
+    let data = [0u8; 64];
+
+    let server_task = tokio::spawn(async move {
+        let new_conn = server.accept().await.unwrap().await.unwrap();
+        let mut s = new_conn.open_uni().await.unwrap();
+        s.write_all(&data).await.unwrap();
+        s.finish().unwrap();
+
+        _ = s.stopped().await;
+    });
+
+    let new_conn = client
+        .connect(server_address, "localhost")
+        .unwrap()
+        .await
+        .expect("connect");
+
+    let mut stream = new_conn.accept_uni().await.expect("incoming streams");
+
+    let _ = stream.stop(0u32.into());
+
+    assert_eq!(stream.all_data_read, true);
+
+    drop(stream);
+    server_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn drop_unread_stream_before_reset() {
+    let _guard = subscribe();
+    let endpoint_factory = EndpointFactory::new();
+
+    let client = endpoint_factory.endpoint();
+    let server = endpoint_factory.endpoint();
+    let server_address = server.local_addr().unwrap();
+
+    let server_task = tokio::spawn(async move {
+        let new_conn = server.accept().await.unwrap().await.unwrap();
+        let mut s = new_conn.open_uni().await.unwrap();
+
+        _ = s.reset(0u32.into());
+
+        _ = s.stopped().await;
+    });
+
+    let new_conn = client
+        .connect(server_address, "localhost")
+        .unwrap()
+        .await
+        .expect("connect");
+    let mut stream = new_conn.accept_uni().await.expect("incoming streams");
+
+    match stream.read_to_end(usize::MAX).await {
+        Err(_) => {
+            assert_eq!(stream.all_data_read, true);
+        }
+        Ok(_) => {}
+    }
+
+    new_conn.close(0u32.into(), b"done");
+
+    drop(stream);
+    server_task.await.unwrap();
 }
 
 /// Construct an endpoint suitable for connecting to itself

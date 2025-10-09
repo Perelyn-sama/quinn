@@ -1,0 +1,1 @@
+- pub fn generate_simple_self_signed(subject_alt_names: impl Into<Vec<String>>) -> Result<CertifiedKey<KeyPair>, Error> why make the param impl into vec string instead of just vec string

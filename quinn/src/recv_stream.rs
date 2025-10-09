@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use std::{
     future::{Future, poll_fn},
     io,
@@ -53,7 +54,7 @@ pub struct RecvStream {
     conn: ConnectionRef,
     stream: StreamId,
     is_0rtt: bool,
-    all_data_read: bool,
+    pub all_data_read: bool,
     reset: Option<VarInt>,
 }
 
@@ -505,7 +506,18 @@ impl tokio::io::AsyncRead for RecvStream {
 
 impl Drop for RecvStream {
     fn drop(&mut self) {
+        dbg!(self.all_data_read);
+        if self.all_data_read {
+            let conn = self.conn.state.lock("RecvStream::drop");
+
+            dbg!(conn.blocked_readers.get(&self.stream));
+
+            return;
+        }
+
         let mut conn = self.conn.state.lock("RecvStream::drop");
+
+        dbg!(conn.blocked_readers.get(&self.stream));
 
         // clean up any previously registered wakers
         conn.blocked_readers.remove(&self.stream);
@@ -513,11 +525,10 @@ impl Drop for RecvStream {
         if conn.error.is_some() || (self.is_0rtt && conn.check_0rtt().is_err()) {
             return;
         }
-        if !self.all_data_read {
-            // Ignore ClosedStream errors
-            let _ = conn.inner.recv_stream(self.stream).stop(0u32.into());
-            conn.wake();
-        }
+
+        // Ignore ClosedStream errors
+        let _ = conn.inner.recv_stream(self.stream).stop(0u32.into());
+        conn.wake();
     }
 }
 
