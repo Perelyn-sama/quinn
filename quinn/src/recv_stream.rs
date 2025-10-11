@@ -512,12 +512,18 @@ impl Drop for RecvStream {
 
             dbg!(conn.blocked_readers.get(&self.stream));
 
+            dbg!(&conn.error.is_some());
+            dbg!(&conn.error);
+
             return;
         }
 
         let mut conn = self.conn.state.lock("RecvStream::drop");
 
         dbg!(conn.blocked_readers.get(&self.stream));
+
+        dbg!(&conn.error.is_some());
+        dbg!(&conn.error);
 
         // clean up any previously registered wakers
         conn.blocked_readers.remove(&self.stream);

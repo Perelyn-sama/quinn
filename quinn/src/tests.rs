@@ -374,6 +374,52 @@ async fn drop_unread_stream_before_reset() {
     server_task.await.unwrap();
 }
 
+// # connection errors 
+// - I can close the connection which would result to ConnectionError::ClosedLocally and still read the data after
+
+#[tokio::test]
+async fn drop_read_before_connection_closed_locally_error() {
+    let _guard = subscribe();
+    let endpoint_factory = EndpointFactory::new();
+
+    let client = endpoint_factory.endpoint();
+    let server = endpoint_factory.endpoint();
+    let server_address = server.local_addr().unwrap();
+
+    let data = [0u8; 64];
+
+
+    let server_task = tokio::spawn(async move {
+        let new_conn = server.accept().await.unwrap().await.unwrap();
+        let mut s = new_conn.open_uni().await.unwrap();
+        s.write_all(&data).await.unwrap();
+        s.finish().unwrap();
+
+        _ = s.stopped().await;
+    });
+
+
+    let new_conn = client
+        .connect(server_address, "localhost")
+        .unwrap()
+        .await
+        .expect("connect");
+    let mut stream = new_conn.accept_uni().await.expect("incoming streams");
+
+    new_conn.close(0u32.into(), b"done");
+
+    let _stream_data = stream.read_to_end(usize::MAX).await.expect("read_to_end");
+    assert_eq!(stream.all_data_read, true);
+
+    drop(stream);
+    server_task.await.unwrap();
+}
+
+// all_read_data turns true when 
+// - all data is read 
+// - sendstream calls reset
+// - recvstream calls stop
+
 /// Construct an endpoint suitable for connecting to itself
 fn endpoint() -> Endpoint {
     EndpointFactory::new().endpoint()
