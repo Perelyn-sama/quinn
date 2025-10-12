@@ -378,7 +378,7 @@ async fn drop_unread_stream_before_reset() {
 // - I can close the connection which would result to ConnectionError::ClosedLocally and still read the data after
 
 #[tokio::test]
-async fn drop_read_before_connection_closed_locally_error() {
+async fn drop_read_after_connection_closed_locally_error() {
     let _guard = subscribe();
     let endpoint_factory = EndpointFactory::new();
 
@@ -412,6 +412,50 @@ async fn drop_read_before_connection_closed_locally_error() {
     assert_eq!(stream.all_data_read, true);
 
     drop(stream);
+    server_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn drop_read_after_connection_timeout_error(){
+    let _guard = subscribe();
+    let endpoint_factory = EndpointFactory::new();
+
+    let server = endpoint_factory.endpoint();
+    let server_addr = server.local_addr();
+    let client = endpoint_factory.endpoint();
+
+    // Avoid NoRootAnchors error
+    let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+    let mut roots = RootCertStore::empty();
+    roots.add(cert.cert.into()).unwrap();
+
+    let mut client_config = crate::ClientConfig::with_root_certificates(Arc::new(roots)).unwrap();
+    const IDLE_TIMEOUT: Duration = Duration::from_millis(500);
+    let mut transport_config = crate::TransportConfig::default();
+    transport_config
+        .max_idle_timeout(Some(IDLE_TIMEOUT.try_into().unwrap()))
+        .initial_rtt(Duration::from_millis(10));
+    client_config.transport_config(Arc::new(transport_config));
+
+    let data = [0u8, 64];
+
+    let server_task = tokio::spawn(async move {
+        let new_conn = server.accept().await.unwrap().await.unwrap();
+        let mut s = new_conn.open_uni().await.unwrap();
+        s.write_all(&data).await.unwrap();
+        s.finish().unwrap();
+
+        _ = s.stopped().await;
+    });
+
+    let new_conn = client.connect_with(client_config, server_addr.unwrap(), "localhost").unwrap().await.expect("connect");
+    let mut stream = new_conn.accept_uni().await.expect("incoming streams");
+
+    tokio::time::sleep(Duration::from_millis(510)).await;
+
+    let _stream_data = stream.read_to_end(usize::MAX).await.expect("read_to_end");
+    assert_eq!(stream.all_data_read, true);
+
     server_task.await.unwrap();
 }
 
