@@ -374,7 +374,7 @@ async fn drop_unread_stream_before_reset() {
     server_task.await.unwrap();
 }
 
-// # connection errors 
+// # connection errors
 // - I can close the connection which would result to ConnectionError::ClosedLocally and still read the data after
 
 #[tokio::test]
@@ -388,7 +388,6 @@ async fn drop_read_after_connection_closed_locally_error() {
 
     let data = [0u8; 64];
 
-
     let server_task = tokio::spawn(async move {
         let new_conn = server.accept().await.unwrap().await.unwrap();
         let mut s = new_conn.open_uni().await.unwrap();
@@ -397,7 +396,6 @@ async fn drop_read_after_connection_closed_locally_error() {
 
         _ = s.stopped().await;
     });
-
 
     let new_conn = client
         .connect(server_address, "localhost")
@@ -416,26 +414,19 @@ async fn drop_read_after_connection_closed_locally_error() {
 }
 
 #[tokio::test]
-async fn drop_read_after_connection_timeout_error(){
+async fn drop_read_after_connection_timeout_error() {
     let _guard = subscribe();
     let endpoint_factory = EndpointFactory::new();
 
-    let server = endpoint_factory.endpoint();
-    let server_addr = server.local_addr();
-    let client = endpoint_factory.endpoint();
-
-    // Avoid NoRootAnchors error
-    let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-    let mut roots = RootCertStore::empty();
-    roots.add(cert.cert.into()).unwrap();
-
-    let mut client_config = crate::ClientConfig::with_root_certificates(Arc::new(roots)).unwrap();
     const IDLE_TIMEOUT: Duration = Duration::from_millis(500);
     let mut transport_config = crate::TransportConfig::default();
     transport_config
         .max_idle_timeout(Some(IDLE_TIMEOUT.try_into().unwrap()))
         .initial_rtt(Duration::from_millis(10));
-    client_config.transport_config(Arc::new(transport_config));
+
+    let server = endpoint_factory.endpoint_with_config(transport_config);
+    let server_addr = server.local_addr();
+    let client = endpoint_factory.endpoint();
 
     let data = [0u8, 64];
 
@@ -448,7 +439,11 @@ async fn drop_read_after_connection_timeout_error(){
         _ = s.stopped().await;
     });
 
-    let new_conn = client.connect_with(client_config, server_addr.unwrap(), "localhost").unwrap().await.expect("connect");
+    let new_conn = client
+        .connect(server_addr.unwrap(), "localhost")
+        .unwrap()
+        .await
+        .expect("connect");
     let mut stream = new_conn.accept_uni().await.expect("incoming streams");
 
     tokio::time::sleep(Duration::from_millis(510)).await;
@@ -459,8 +454,8 @@ async fn drop_read_after_connection_timeout_error(){
     server_task.await.unwrap();
 }
 
-// all_read_data turns true when 
-// - all data is read 
+// all_read_data turns true when
+// - all data is read
 // - sendstream calls reset
 // - recvstream calls stop
 
