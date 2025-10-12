@@ -17,11 +17,11 @@ use std::{
 use crate::runtime::TokioRuntime;
 use crate::{Duration, Instant};
 use bytes::Bytes;
-use proto::{RandomConnectionIdGenerator, crypto::rustls::QuicClientConfig};
-use rand::{RngCore, SeedableRng, rngs::StdRng};
+use proto::{crypto::rustls::QuicClientConfig, RandomConnectionIdGenerator};
+use rand::{rngs::StdRng, RngCore, SeedableRng};
 use rustls::{
-    RootCertStore,
     pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
+    RootCertStore,
 };
 use tokio::runtime::{Builder, Runtime};
 use tracing::{error_span, info};
@@ -375,10 +375,12 @@ async fn drop_unread_stream_before_reset() {
 }
 
 // # connection errors
-// - I can close the connection which would result to ConnectionError::ClosedLocally and still read the data after
+// - I can close the connection which would result to ConnectionError::LocallyClosed and still read the data after
+// - I can set a time out of 500ms, write to the stream, send a fin signal, wait for 510ms which would close the connection(ConnectionError::ApplicationClosed) and still read data after
+// - If I set a time out of 500ms, write to the stream, not send a fin signal but keep sendstream alive long enough for recvstream to read it, it'll lead to ConnectionError::Timeout and I won't be able to read the stream
 
 #[tokio::test]
-async fn drop_read_after_connection_closed_locally_error() {
+async fn drop_read_after_connection_locallyclosed_error() {
     let _guard = subscribe();
     let endpoint_factory = EndpointFactory::new();
 
@@ -414,7 +416,7 @@ async fn drop_read_after_connection_closed_locally_error() {
 }
 
 #[tokio::test]
-async fn drop_read_after_connection_timeout_error() {
+async fn drop_read_after_connection_appclosed_error() {
     let _guard = subscribe();
     let endpoint_factory = EndpointFactory::new();
 
@@ -437,6 +439,46 @@ async fn drop_read_after_connection_timeout_error() {
         s.finish().unwrap();
 
         _ = s.stopped().await;
+    });
+
+    let new_conn = client
+        .connect(server_addr.unwrap(), "localhost")
+        .unwrap()
+        .await
+        .expect("connect");
+    let mut stream = new_conn.accept_uni().await.expect("incoming streams");
+
+    tokio::time::sleep(Duration::from_millis(510)).await;
+
+    let _stream_data = stream.read_to_end(usize::MAX).await.expect("read_to_end");
+    assert_eq!(stream.all_data_read, true);
+
+    server_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn drop_read_after_connection_timeout_error() {
+    let _guard = subscribe();
+    let endpoint_factory = EndpointFactory::new();
+
+    const IDLE_TIMEOUT: Duration = Duration::from_millis(500);
+    let mut transport_config = crate::TransportConfig::default();
+    transport_config
+        .max_idle_timeout(Some(IDLE_TIMEOUT.try_into().unwrap()))
+        .initial_rtt(Duration::from_millis(10));
+
+    let server = endpoint_factory.endpoint_with_config(transport_config);
+    let server_addr = server.local_addr();
+    let client = endpoint_factory.endpoint();
+
+    let data = [0u8, 64];
+
+    let server_task = tokio::spawn(async move {
+        let new_conn = server.accept().await.unwrap().await.unwrap();
+        let mut s = new_conn.open_uni().await.unwrap();
+        s.write_all(&data).await.unwrap();
+
+        tokio::time::sleep(Duration::from_millis(600)).await;
     });
 
     let new_conn = client
