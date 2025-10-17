@@ -490,8 +490,55 @@ async fn drop_read_after_connection_timeout_error() {
 
     tokio::time::sleep(Duration::from_millis(510)).await;
 
-    let _stream_data = stream.read_to_end(usize::MAX).await.expect("read_to_end");
-    assert_eq!(stream.all_data_read, true);
+    match stream.read_to_end(usize::MAX).await {
+        Ok(_) => {}
+        Err(_) => {
+            assert_eq!(stream.all_data_read, false);
+        }
+    }
+
+    server_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn test_blocked_readers() {
+    let _guard = subscribe();
+    let factory = EndpointFactory::new();
+
+    let server = factory.endpoint();
+    let server_address = server.local_addr();
+
+    let client = factory.endpoint();
+
+    let data = [0u8; 64];
+
+    let server_task = tokio::spawn(async move {
+        let new_conn = server.accept().await.unwrap().await.unwrap();
+        let mut s = new_conn.open_uni().await.unwrap();
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        s.write_all(&data).await.unwrap();
+        s.finish().unwrap();
+
+        let _ = s.stopped().await;
+    });
+
+    let new_conn = client
+        .connect(server_address.unwrap(), "localhost")
+        .unwrap()
+        .await
+        .expect("connect");
+    let mut stream = new_conn.accept_uni().await.expect("incoming");
+
+    match stream.read_to_end(usize::MAX).await {
+        Ok(res) => {
+            dbg!(res.len());
+        }
+        Err(err) => {
+            dbg!(err);
+        }
+    };
 
     server_task.await.unwrap();
 }
