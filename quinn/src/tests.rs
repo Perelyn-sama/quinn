@@ -558,6 +558,69 @@ async fn test_blocked_readers() {
     server_task.await.unwrap();
 }
 
+// alessandro, [20/10/2025 05:47]
+//if you drop the recv stream while you’ve written some data and before you called finish from the send side you should on drop find that the stream is blocked
+#[tokio::test]
+async fn test_readers() {
+    let _guard = subscribe();
+    let endpoint_factory = EndpointFactory::new();
+
+    let server = endpoint_factory.endpoint();
+    let server_address = server.local_addr();
+    let client = endpoint_factory.endpoint();
+
+    let data = b"let's get this shit boy!";
+
+    let server_task = tokio::spawn(async move {
+        let new_conn = server.accept().await.unwrap().await.unwrap();
+        let mut s = new_conn.open_uni().await.unwrap();
+        info!("SERVER: open uni conn");
+
+        s.write_all(data).await.unwrap();
+        info!("SERVER: write data to stream");
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        info!("SERVER: send FIN signal");
+        let _ = s.finish();
+
+        let _ = s.stopped().await.unwrap();
+    });
+
+    info!("CLIENT: connect to uni conn");
+    let new_conn = client
+        .connect(server_address.unwrap(), "localhost")
+        .unwrap()
+        .await
+        .unwrap();
+
+    let stream = new_conn.accept_uni().await.unwrap();
+    info!("CLIENT: accept uni comm");
+
+    info!("CLIENT: drop stream");
+    drop(stream);
+
+    // info!("CLIENT: read data from stream");
+    // let _stream_data = stream.read_to_end(usize::MAX).await.unwrap();
+
+    server_task.await.unwrap();
+}
+
+// output
+// running 1 test
+// 2025-10-20T15:50:03.319670Z  INFO quinn::tests: CLIENT: connect to uni conn
+// 2025-10-20T15:50:03.324778Z  INFO quinn::tests: SERVER: open uni conn
+// 2025-10-20T15:50:03.324820Z  INFO quinn::tests: SERVER: write data to stream
+// 2025-10-20T15:50:03.325580Z  INFO quinn::tests: CLIENT: accept uni comm
+// 2025-10-20T15:50:03.325598Z  INFO quinn::tests: CLIENT: drop stream
+// [quinn/src/recv_stream.rs:509:9] self.all_data_read = false
+// [quinn/src/recv_stream.rs:525:9] &conn.blocked_readers = {}
+// [quinn/src/recv_stream.rs:527:9] conn.blocked_readers.get(&self.stream) = None
+// [quinn/src/recv_stream.rs:529:9] &conn.error.is_some() = false
+// [quinn/src/recv_stream.rs:530:9] &conn.error = None
+// 2025-10-20T15:50:03.426210Z  INFO quinn::tests: SERVER: send FIN signal
+// test tests::test_readers ... ok
+
 // all_read_data turns true when
 // - all data is read
 // - sendstream calls reset
