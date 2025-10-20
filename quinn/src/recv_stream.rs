@@ -1,9 +1,9 @@
 #![allow(missing_docs)]
 use std::{
-    future::{poll_fn, Future},
+    future::{Future, poll_fn},
     io,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use bytes::Bytes;
@@ -11,7 +11,7 @@ use proto::{Chunk, Chunks, ClosedStream, ConnectionError, ReadableError, StreamI
 use thiserror::Error;
 use tokio::io::ReadBuf;
 
-use crate::{connection::ConnectionRef, VarInt};
+use crate::{VarInt, connection::ConnectionRef};
 
 /// A stream that can only be used to receive data
 ///
@@ -510,6 +510,8 @@ impl Drop for RecvStream {
         if self.all_data_read {
             let conn = self.conn.state.lock("RecvStream::drop");
 
+            dbg!(&conn.blocked_readers);
+
             dbg!(conn.blocked_readers.get(&self.stream));
 
             dbg!(&conn.error.is_some());
@@ -519,6 +521,8 @@ impl Drop for RecvStream {
         }
 
         let mut conn = self.conn.state.lock("RecvStream::drop");
+
+        dbg!(&conn.blocked_readers);
 
         dbg!(conn.blocked_readers.get(&self.stream));
 

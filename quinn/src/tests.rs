@@ -17,11 +17,11 @@ use std::{
 use crate::runtime::TokioRuntime;
 use crate::{Duration, Instant};
 use bytes::Bytes;
-use proto::{crypto::rustls::QuicClientConfig, RandomConnectionIdGenerator};
-use rand::{rngs::StdRng, RngCore, SeedableRng};
+use proto::{RandomConnectionIdGenerator, crypto::rustls::QuicClientConfig};
+use rand::{RngCore, SeedableRng, rngs::StdRng};
 use rustls::{
-    pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
     RootCertStore,
+    pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
 };
 use tokio::runtime::{Builder, Runtime};
 use tracing::{error_span, info};
@@ -499,10 +499,14 @@ async fn drop_read_after_connection_timeout_error() {
 
     server_task.await.unwrap();
 }
+// # notes
+// - read_to_end() is designed to wait for ALL data (DEBATBLE)
+// - accept_uni() isn't returning until there's data to read (DEBATABLE)
 
 #[tokio::test]
 async fn test_blocked_readers() {
-    let _guard = subscribe();
+    let _guard = subscribe_with_uptime();
+
     let factory = EndpointFactory::new();
 
     let server = factory.endpoint();
@@ -514,12 +518,17 @@ async fn test_blocked_readers() {
 
     let server_task = tokio::spawn(async move {
         let new_conn = server.accept().await.unwrap().await.unwrap();
-        let mut s = new_conn.open_uni().await.unwrap();
 
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        let mut s = new_conn.open_uni().await.unwrap();
+        info!("SERVER: open uni conn");
+
+        tokio::task::yield_now().await;
 
         s.write_all(&data).await.unwrap();
+        info!("SERVER: write all data");
+
         s.finish().unwrap();
+        info!("SERVER: send fin signal");
 
         let _ = s.stopped().await;
     });
@@ -529,11 +538,17 @@ async fn test_blocked_readers() {
         .unwrap()
         .await
         .expect("connect");
-    let mut stream = new_conn.accept_uni().await.expect("incoming");
+    info!("CLIENT: connect to server");
 
-    match stream.read_to_end(usize::MAX).await {
+    let mut stream = new_conn.accept_uni().await.expect("incoming");
+    info!("CLIENT: accept uni conn");
+
+    info!("CLIENT: read data with recvstream");
+
+    let mut read_buf = [0u8; 64];
+    match stream.read(&mut read_buf).await {
         Ok(res) => {
-            dbg!(res.len());
+            dbg!(res);
         }
         Err(err) => {
             dbg!(err);
@@ -938,6 +953,16 @@ fn subscribe() -> tracing::subscriber::DefaultGuard {
     let sub = tracing_subscriber::FmtSubscriber::builder()
         .with_env_filter(EnvFilter::from_default_env())
         .with_writer(|| TestWriter)
+        .finish();
+    tracing::subscriber::set_default(sub)
+}
+fn subscribe_with_uptime() -> tracing::subscriber::DefaultGuard {
+    use tracing_subscriber::fmt::time::uptime;
+
+    let sub = tracing_subscriber::FmtSubscriber::builder()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_writer(|| TestWriter)
+        .with_timer(uptime())
         .finish();
     tracing::subscriber::set_default(sub)
 }
