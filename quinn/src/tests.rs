@@ -602,12 +602,15 @@ async fn test_readers() {
     // stream.read(&mut buf).await.unwrap();
 
     tokio::select! {
-        result =  stream.read(&mut buf) => {
-            println!("Completed: {:?}", result);
-            info!("CLIENT: read stream completed");
+        result = stream.read(&mut buf) => {
+            match result {
+                Ok(Some(0)) => println!("CLIENT: EOF - connection closed"),
+                Ok(n) => println!("CLIENT: read {} bytes immediately", n.unwrap()),
+                Err(e) => println!("CLIENT: error: {}", e),
+            }
         }
         _ = tokio::time::sleep(Duration::from_millis(1)) => {
-            println!("Still waiting after 5 seconds...");
+            println!("Still waiting after 1ms...");
         }
     }
 
