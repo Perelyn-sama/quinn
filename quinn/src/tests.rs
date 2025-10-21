@@ -594,8 +594,12 @@ async fn test_readers() {
         .await
         .unwrap();
 
-    let stream = new_conn.accept_uni().await.unwrap();
+    let mut stream = new_conn.accept_uni().await.unwrap();
     info!("CLIENT: accept uni comm");
+
+    let mut buf = [0u8; 64];
+    info!("CLIENT: read stream");
+    stream.read(&mut buf).await.unwrap();
 
     info!("CLIENT: drop stream");
     drop(stream);
