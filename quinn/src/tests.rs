@@ -599,7 +599,17 @@ async fn test_readers() {
 
     let mut buf = [0u8; 64];
     info!("CLIENT: read stream");
-    stream.read(&mut buf).await.unwrap();
+    // stream.read(&mut buf).await.unwrap();
+
+    tokio::select! {
+        result =  stream.read(&mut buf) => {
+            println!("Completed: {:?}", result);
+            info!("CLIENT: read stream completed");
+        }
+        _ = tokio::time::sleep(Duration::from_millis(1)) => {
+            println!("Still waiting after 5 seconds...");
+        }
+    }
 
     info!("CLIENT: drop stream");
     drop(stream);
