@@ -651,16 +651,17 @@ async fn test_dont_write_bro() {
 
     let server_task = tokio::spawn(async move {
         let new_conn = server.accept().await.unwrap().await.unwrap();
+
+        info!("SERVER: accept uni");
         let mut stream = new_conn.accept_uni().await.unwrap();
 
         let mut buf = [0u8; 64];
+        info!("SERVER: read stream");
         let res = stream.read(&mut buf).await.unwrap();
 
         dbg!(res);
 
-        tokio::time::sleep(Duration::from_millis(5000)).await;
-
-        drop(stream);
+        // drop(stream);
     });
 
     let new_conn = client
@@ -669,9 +670,14 @@ async fn test_dont_write_bro() {
         .await
         .unwrap();
 
-    let _stream = new_conn.open_uni().await.unwrap();
+    info!("CLIENT: open uni conn");
+    let stream = new_conn.open_uni().await.unwrap();
 
-    // drop(stream);
+    info!("CLIENT: sleep for 5 seconds");
+    tokio::time::sleep(Duration::from_millis(5000)).await;
+
+    info!("CLIENT: drop send stream");
+    drop(stream);
 
     server_task.await.unwrap();
 }
