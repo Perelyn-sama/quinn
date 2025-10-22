@@ -640,6 +640,42 @@ async fn test_readers() {
 // 2025-10-21T16:31:43.172563Z  INFO quinn::tests: SERVER: send FIN signal
 // test tests::test_readers ... ok
 
+#[tokio::test]
+async fn test_dont_write_bro() {
+    let _guard = subscribe();
+    let endpoint_factory = EndpointFactory::new();
+
+    let server = endpoint_factory.endpoint();
+    let server_address = server.local_addr();
+    let client = endpoint_factory.endpoint();
+
+    let server_task = tokio::spawn(async move {
+        let new_conn = server.accept().await.unwrap().await.unwrap();
+        let mut stream = new_conn.accept_uni().await.unwrap();
+
+        let mut buf = [0u8; 64];
+        let res = stream.read(&mut buf).await.unwrap();
+
+        dbg!(res);
+
+        tokio::time::sleep(Duration::from_millis(5000)).await;
+
+        drop(stream);
+    });
+
+    let new_conn = client
+        .connect(server_address.unwrap(), "localhost")
+        .unwrap()
+        .await
+        .unwrap();
+
+    let _stream = new_conn.open_uni().await.unwrap();
+
+    // drop(stream);
+
+    server_task.await.unwrap();
+}
+
 // all_read_data turns true when
 // - all data is read
 // - sendstream calls reset
