@@ -505,65 +505,10 @@ async fn drop_read_after_connection_timeout_error() {
 
 #[tokio::test]
 async fn test_blocked_readers() {
-    let _guard = subscribe_with_uptime();
-
-    let factory = EndpointFactory::new();
-
-    let server = factory.endpoint();
-    let server_address = server.local_addr();
-
-    let client = factory.endpoint();
-
-    let data = [0u8; 64];
-
-    let server_task = tokio::spawn(async move {
-        let new_conn = server.accept().await.unwrap().await.unwrap();
-
-        let mut s = new_conn.open_uni().await.unwrap();
-        info!("SERVER: open uni conn");
-
-        tokio::task::yield_now().await;
-
-        s.write_all(&data).await.unwrap();
-        info!("SERVER: write all data");
-
-        s.finish().unwrap();
-        info!("SERVER: send fin signal");
-
-        let _ = s.stopped().await;
-    });
-
-    let new_conn = client
-        .connect(server_address.unwrap(), "localhost")
-        .unwrap()
-        .await
-        .expect("connect");
-    info!("CLIENT: connect to server");
-
-    let mut stream = new_conn.accept_uni().await.expect("incoming");
-    info!("CLIENT: accept uni conn");
-
-    info!("CLIENT: read data with recvstream");
-
-    let mut read_buf = [0u8; 64];
-    match stream.read(&mut read_buf).await {
-        Ok(res) => {
-            dbg!(res);
-        }
-        Err(err) => {
-            dbg!(err);
-        }
-    };
-
-    server_task.await.unwrap();
-}
-
-// alessandro, [20/10/2025 05:47]
-//if you drop the recv stream while you’ve written some data and before you called finish from the send side you should on drop find that the stream is blocked
-#[tokio::test]
-async fn test_readers() {
     let _guard = subscribe();
     let endpoint_factory = EndpointFactory::new();
+
+    eprintln!("WTF");
 
     let server = endpoint_factory.endpoint();
     let server_address = server.local_addr();
@@ -573,110 +518,31 @@ async fn test_readers() {
 
     let server_task = tokio::spawn(async move {
         let new_conn = server.accept().await.unwrap().await.unwrap();
-        let mut s = new_conn.open_uni().await.unwrap();
-        info!("SERVER: open uni conn");
-
-        s.write_all(data).await.unwrap();
-        info!("SERVER: write data to stream");
-
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        info!("SERVER: send FIN signal");
-        let _ = s.finish();
-
-        let _ = s.stopped().await.unwrap();
-    });
-
-    info!("CLIENT: connect to uni conn");
-    let new_conn = client
-        .connect(server_address.unwrap(), "localhost")
-        .unwrap()
-        .await
-        .unwrap();
-
-    let mut stream = new_conn.accept_uni().await.unwrap();
-    info!("CLIENT: accept uni comm");
-
-    let mut buf = [0u8; 64];
-    info!("CLIENT: read stream");
-    // stream.read(&mut buf).await.unwrap();
-
-    tokio::select! {
-        result = stream.read(&mut buf) => {
-            match result {
-                Ok(Some(0)) => println!("CLIENT: EOF - connection closed"),
-                Ok(n) => println!("CLIENT: read {} bytes immediately", n.unwrap()),
-                Err(e) => println!("CLIENT: error: {}", e),
-            }
-        }
-        _ = tokio::time::sleep(Duration::from_millis(1)) => {
-            println!("Still waiting after 1ms...");
-        }
-    }
-
-    info!("CLIENT: drop stream");
-    drop(stream);
-
-    // info!("CLIENT: read data from stream");
-    // let _stream_data = stream.read_to_end(usize::MAX).await.unwrap();
-
-    server_task.await.unwrap();
-}
-
-// output
-// running 1 test
-// 2025-10-21T16:31:43.062884Z  INFO quinn::tests: CLIENT: connect to uni conn
-// 2025-10-21T16:31:43.070015Z  INFO quinn::tests: SERVER: open uni conn
-// 2025-10-21T16:31:43.070045Z  INFO quinn::tests: SERVER: write data to stream
-// 2025-10-21T16:31:43.070664Z  INFO quinn::tests: CLIENT: accept uni comm
-// 2025-10-21T16:31:43.070674Z  INFO quinn::tests: CLIENT: read stream
-// CLIENT: read 24 bytes immediately
-// 2025-10-21T16:31:43.070696Z  INFO quinn::tests: CLIENT: drop stream
-// [quinn/src/recv_stream.rs:509:9] self.all_data_read = false
-// [quinn/src/recv_stream.rs:525:9] &conn.blocked_readers = {}
-// [quinn/src/recv_stream.rs:527:9] conn.blocked_readers.get(&self.stream) = None
-// [quinn/src/recv_stream.rs:529:9] &conn.error.is_some() = false
-// [quinn/src/recv_stream.rs:530:9] &conn.error = None
-// 2025-10-21T16:31:43.172563Z  INFO quinn::tests: SERVER: send FIN signal
-// test tests::test_readers ... ok
-
-#[tokio::test]
-async fn test_dont_write_bro() {
-    let _guard = subscribe();
-    let endpoint_factory = EndpointFactory::new();
-
-    let server = endpoint_factory.endpoint();
-    let server_address = server.local_addr();
-    let client = endpoint_factory.endpoint();
-
-    let server_task = tokio::spawn(async move {
-        let new_conn = server.accept().await.unwrap().await.unwrap();
-
-        info!("SERVER: accept uni");
-        let mut stream = new_conn.accept_uni().await.unwrap();
+        eprintln!("SERVER: accept uni conn before");
+        let mut s = new_conn.accept_uni().await.unwrap();
+        eprintln!("SERVER: accept uni conn after");
 
         let mut buf = [0u8; 64];
-        info!("SERVER: read stream");
-        let res = stream.read(&mut buf).await.unwrap();
+        s.read(&mut buf).await.unwrap();
 
-        dbg!(res);
-
-        // drop(stream);
+        let r = tokio::time::timeout(Duration::from_millis(1), s.read(&mut buf)).await;
+        assert!(r.is_err());
     });
 
+    eprintln!("CLIENT: connect to uni conn");
     let new_conn = client
         .connect(server_address.unwrap(), "localhost")
         .unwrap()
         .await
         .unwrap();
 
-    info!("CLIENT: open uni conn");
-    let stream = new_conn.open_uni().await.unwrap();
+    let mut stream = new_conn.open_uni().await.unwrap();
+    eprintln!("CLIENT: accept uni comm");
+    stream.write_all(b"lol").await.unwrap();
 
-    info!("CLIENT: sleep for 5 seconds");
     tokio::time::sleep(Duration::from_millis(5000)).await;
 
-    info!("CLIENT: drop send stream");
+    eprintln!("CLIENT: drop stream");
     drop(stream);
 
     server_task.await.unwrap();

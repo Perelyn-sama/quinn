@@ -316,15 +316,22 @@ impl RecvStream {
                 return Poll::Ready(Ok(Some(code)));
             }
 
+            dbg!("bro did not get here");
+
             match conn.inner.recv_stream(self.stream).received_reset() {
-                Err(_) => Poll::Ready(Ok(None)),
+                Err(_) => {
+                    dbg!("this bitch return err, tf?");
+                    Poll::Ready(Ok(None))
+                }
                 Ok(Some(error_code)) => {
+                    dbg!("this bitch return some(err), tf?");
                     // Stream state has just now been freed, so the connection may need to issue new
                     // stream ID flow control credit
                     conn.wake();
                     Poll::Ready(Ok(Some(error_code)))
                 }
                 Ok(None) => {
+                    dbg!("this bitch return none, tf?");
                     if let Some(e) = &conn.error {
                         return Poll::Ready(Err(e.clone().into()));
                     }
@@ -381,14 +388,22 @@ impl RecvStream {
         };
 
         match status {
-            ReadStatus::Readable(read) => Poll::Ready(Ok(Some(read))),
+            ReadStatus::Readable(read) => {
+                dbg!("this bitch is readable, tf?");
+                Poll::Ready(Ok(Some(read)))
+            }
             ReadStatus::Finished(read) => {
+                dbg!("this bitch is finished, tf?");
                 self.all_data_read = true;
                 Poll::Ready(Ok(read))
             }
             ReadStatus::Failed(read, Blocked) => match read {
-                Some(val) => Poll::Ready(Ok(Some(val))),
+                Some(val) => {
+                    dbg!("this bitch is failed - blocked with some(val), tf?");
+                    Poll::Ready(Ok(Some(val)))
+                }
                 None => {
+                    dbg!("this bitch is failed - blocked with None, tf?");
                     if let Some(ref x) = conn.error {
                         return Poll::Ready(Err(ReadError::ConnectionLost(x.clone())));
                     }
@@ -398,6 +413,7 @@ impl RecvStream {
             },
             ReadStatus::Failed(read, Reset(error_code)) => match read {
                 None => {
+                    dbg!("this bitch is failed - reset with None, tf?");
                     self.all_data_read = true;
                     self.reset = Some(error_code);
                     Poll::Ready(Err(ReadError::Reset(error_code)))
