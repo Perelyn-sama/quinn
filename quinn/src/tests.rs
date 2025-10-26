@@ -514,8 +514,6 @@ async fn test_blocked_readers() {
     let server_address = server.local_addr();
     let client = endpoint_factory.endpoint();
 
-    let data = b"let's get this shit boy!";
-
     let server_task = tokio::spawn(async move {
         let new_conn = server.accept().await.unwrap().await.unwrap();
         eprintln!("SERVER: accept uni conn before");
@@ -943,16 +941,6 @@ fn subscribe() -> tracing::subscriber::DefaultGuard {
     let sub = tracing_subscriber::FmtSubscriber::builder()
         .with_env_filter(EnvFilter::from_default_env())
         .with_writer(|| TestWriter)
-        .finish();
-    tracing::subscriber::set_default(sub)
-}
-fn subscribe_with_uptime() -> tracing::subscriber::DefaultGuard {
-    use tracing_subscriber::fmt::time::uptime;
-
-    let sub = tracing_subscriber::FmtSubscriber::builder()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_writer(|| TestWriter)
-        .with_timer(uptime())
         .finish();
     tracing::subscriber::set_default(sub)
 }
