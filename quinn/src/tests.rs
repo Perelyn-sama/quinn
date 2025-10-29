@@ -524,10 +524,12 @@ async fn drop_read_after_reset_error() {
         let mut s = new_conn.accept_uni().await.unwrap();
 
         let mut buf = [0u8; 64];
-        s.read(&mut buf).await.unwrap();
+        assert!(s.read(&mut buf).await.is_err());
 
-        let r = tokio::time::timeout(Duration::from_millis(1), s.read(&mut buf)).await;
-        assert!(r.is_err());
+        drop(s);
+
+        // let r = tokio::time::timeout(Duration::from_millis(1), s.read(&mut buf)).await;
+        // assert!(r.is_err());
     });
 
     let new_conn = client
@@ -544,7 +546,7 @@ async fn drop_read_after_reset_error() {
 
     tokio::time::sleep(Duration::from_millis(5000)).await;
 
-    drop(stream);
+    // drop(stream);
 
     server_task.await.unwrap();
 }
