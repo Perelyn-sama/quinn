@@ -19,6 +19,7 @@
 #![allow(clippy::cognitive_complexity)]
 #![allow(clippy::too_many_arguments)]
 #![warn(clippy::use_self)]
+// #![feature(btree_extract_if)]
 
 use std::{
     fmt,

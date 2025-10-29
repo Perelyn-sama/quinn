@@ -61,6 +61,7 @@ impl RangeSet {
         }
         if let Some((start, end)) = self.pred(x.start) {
             if end >= x.end {
+                dbg!("wholly contained!");
                 // Wholly contained
                 return false;
             } else if end >= x.start {
@@ -69,17 +70,57 @@ impl RangeSet {
                 x.start = start;
             }
         }
+
+        // Merge with all overlapping successor ranges
+        // This loop handles ranges that come after x.start in the BTreeMap.
+        // We repeatedly check for the next range after x.start and merge any that overlap.
         while let Some((next_start, next_end)) = self.succ(x.start) {
+            // If the next range starts after x.end, there's a gap and no overlap
+            // Example: x = 5..10, next = 15..20 → no overlap (gap from 10 to 15)
             if next_start > x.end {
                 break;
             }
-            // Overlaps with successor
+
+            // At this point, we know next_start <= x.end, so there is overlap
+            // Examples of overlapping cases:
+            // 1. x = 5..10, next = 7..12  → overlap [7..10), merge to 5..12
+            // 2. x = 5..10, next = 10..15 → adjacent (10 touches), merge to 5..15
+            // 3. x = 5..15, next = 8..12  → next contained in x, keep x.end = 15
+
+            // Remove the overlapping successor range since we'll merge it into x
             self.0.remove(&next_start);
+
+            // Extend x.end to cover both ranges
+            // Use max() because x might already extend past next_end (case 3 above)
             x.end = cmp::max(next_end, x.end);
+
+            // Loop continues to check for more successors, since merging with this
+            // range might have created overlap with subsequent ranges
         }
         self.0.insert(x.start, x.end);
         true
     }
+
+    // #![allow(unused)]
+    // #![feature(btree_extract_if)]
+
+    // fn main() {
+    //     use std::collections::BTreeMap;
+
+    //     // Splitting a map into even and odd keys, reusing the original map:
+    //     let mut map: BTreeMap<i32, i32> = (0..8).map(|x| (x, x)).collect();
+    //     let evens: BTreeMap<_, _> = map.extract_if(.., |k, _v| k % 2 == 0).collect();
+    //     let odds = map;
+    //     assert_eq!(evens.keys().copied().collect::<Vec<_>>(), [0, 2, 4, 6]);
+    //     assert_eq!(odds.keys().copied().collect::<Vec<_>>(), [1, 3, 5, 7]);
+
+    //     // Splitting a map into low and high halves, reusing the original map:
+    //     let mut map: BTreeMap<i32, i32> = (0..8).map(|x| (x, x)).collect();
+    //     let low: BTreeMap<_, _> = map.extract_if(0..4, |_k, _v| true).collect();
+    //     let high = map;
+    //     assert_eq!(low.keys().copied().collect::<Vec<_>>(), [0, 1, 2, 3]);
+    //     assert_eq!(high.keys().copied().collect::<Vec<_>>(), [4, 5, 6, 7]);
+    // }
 
     /// Find closest range to `x` that begins at or before it
     fn pred(&self, x: u64) -> Option<(u64, u64)> {
@@ -97,41 +138,93 @@ impl RangeSet {
             .map(|(&x, &y)| (x, y))
     }
 
+    // pub fn remove(&mut self, x: Range<u64>) -> bool {
+    //     if x.is_empty() {
+    //         return false;
+    //     }
+
+    //     let before = match self.pred(x.start) {
+    //         Some((start, end)) if end > x.start => {
+    //             self.0.remove(&start);
+    //             if start < x.start {
+    //                 self.0.insert(start, x.start);
+    //             }
+    //             if end > x.end {
+    //                 self.0.insert(x.end, end);
+    //             }
+    //             // Short-circuit if we cannot possibly overlap with another range
+    //             if end >= x.end {
+    //                 return true;
+    //             }
+    //             true
+    //         }
+    //         Some(_) | None => false,
+    //     };
+    //     let mut after = false;
+    //     while let Some((start, end)) = self.succ(x.start) {
+    //         if start >= x.end {
+    //             break;
+    //         }
+    //         after = true;
+    //         self.0.remove(&start);
+    //         if end > x.end {
+    //             self.0.insert(x.end, end);
+    //             break;
+    //         }
+    //     }
+    //     before || after
+    // }
+
     pub fn remove(&mut self, x: Range<u64>) -> bool {
         if x.is_empty() {
             return false;
         }
 
-        let before = match self.pred(x.start) {
-            Some((start, end)) if end > x.start => {
+        let mut modified = false;
+
+        // Handle predecessor
+        if let Some((start, end)) = self.pred(x.start) {
+            if end > x.start {
                 self.0.remove(&start);
+                modified = true;
                 if start < x.start {
                     self.0.insert(start, x.start);
                 }
                 if end > x.end {
                     self.0.insert(x.end, end);
+                    return true; // Short-circuit
                 }
-                // Short-circuit if we cannot possibly overlap with another range
-                if end >= x.end {
-                    return true;
-                }
-                true
-            }
-            Some(_) | None => false,
-        };
-        let mut after = false;
-        while let Some((start, end)) = self.succ(x.start) {
-            if start >= x.end {
-                break;
-            }
-            after = true;
-            self.0.remove(&start);
-            if end > x.end {
-                self.0.insert(x.end, end);
-                break;
             }
         }
-        before || after
+
+        // Collect ranges to insert after extraction
+        let mut to_insert = Vec::new();
+
+        // Use extract_if to remove all overlapping successors
+        self.0
+            .extract_if(.., |&start, &mut end| {
+                if start >= x.end {
+                    false // Past the removal range
+                } else if start >= x.start {
+                    // This range overlaps with x
+                    modified = true;
+                    if end > x.end {
+                        // Partial overlap - keep the part after x.end
+                        to_insert.push((x.end, end));
+                    }
+                    true // Remove this entry
+                } else {
+                    false
+                }
+            })
+            .for_each(drop);
+
+        // Insert any remaining portions
+        for (start, end) in to_insert {
+            self.0.insert(start, end);
+        }
+
+        modified
     }
 
     /// Add a range to the set, returning the intersection of current ranges with the new one
@@ -326,10 +419,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_remove() {
+        let mut set = RangeSet::new();
+        set.insert(2..10);
+        dbg!(&set);
+
+        set.remove(4..6);
+
+        dbg!(&set);
+    }
+
+    #[test]
     fn replace_contained() {
         let mut set = RangeSet::new();
         set.insert(2..4);
+        dbg!(&set);
         assert_eq!(set.replace(1..5).collect::<Vec<_>>(), &[2..4]);
+        dbg!(&set);
         assert_eq!(set.len(), 1);
         assert_eq!(set.peek_min().unwrap(), 1..5);
     }
