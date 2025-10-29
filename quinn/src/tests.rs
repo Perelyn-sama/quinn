@@ -379,6 +379,16 @@ async fn drop_unread_stream_before_reset() {
 // - I can set a time out of 500ms, write to the stream, send a fin signal, wait for 510ms which would close the connection(ConnectionError::ApplicationClosed) and still read data after
 // - If I set a time out of 500ms, write to the stream, not send a fin signal but keep sendstream alive long enough for recvstream to read it, it'll lead to ConnectionError::Timeout and I won't be able to read the stream
 
+// Errors to get
+//   VersionMismatch,
+//   TransportError(Error),
+//   ConnectionClosed(ConnectionClose),
+//   ApplicationClosed(ApplicationClose), ✔️
+//   Reset,
+//   TimedOut, ✔️
+//   LocallyClosed, ✔️
+//   CidsExhausted,
+
 #[tokio::test]
 async fn drop_read_after_connection_locallyclosed_error() {
     let _guard = subscribe();
