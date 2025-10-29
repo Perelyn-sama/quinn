@@ -138,94 +138,94 @@ impl RangeSet {
             .map(|(&x, &y)| (x, y))
     }
 
-    // pub fn remove(&mut self, x: Range<u64>) -> bool {
-    //     if x.is_empty() {
-    //         return false;
-    //     }
-
-    //     let before = match self.pred(x.start) {
-    //         Some((start, end)) if end > x.start => {
-    //             self.0.remove(&start);
-    //             if start < x.start {
-    //                 self.0.insert(start, x.start);
-    //             }
-    //             if end > x.end {
-    //                 self.0.insert(x.end, end);
-    //             }
-    //             // Short-circuit if we cannot possibly overlap with another range
-    //             if end >= x.end {
-    //                 return true;
-    //             }
-    //             true
-    //         }
-    //         Some(_) | None => false,
-    //     };
-    //     let mut after = false;
-    //     while let Some((start, end)) = self.succ(x.start) {
-    //         if start >= x.end {
-    //             break;
-    //         }
-    //         after = true;
-    //         self.0.remove(&start);
-    //         if end > x.end {
-    //             self.0.insert(x.end, end);
-    //             break;
-    //         }
-    //     }
-    //     before || after
-    // }
-
     pub fn remove(&mut self, x: Range<u64>) -> bool {
         if x.is_empty() {
             return false;
         }
 
-        let mut modified = false;
-
-        // Handle predecessor
-        if let Some((start, end)) = self.pred(x.start) {
-            if end > x.start {
+        let before = match self.pred(x.start) {
+            Some((start, end)) if end > x.start => {
                 self.0.remove(&start);
-                modified = true;
                 if start < x.start {
                     self.0.insert(start, x.start);
                 }
                 if end > x.end {
                     self.0.insert(x.end, end);
-                    return true; // Short-circuit
                 }
+                // Short-circuit if we cannot possibly overlap with another range
+                if end >= x.end {
+                    return true;
+                }
+                true
+            }
+            Some(_) | None => false,
+        };
+        let mut after = false;
+        while let Some((start, end)) = self.succ(x.start) {
+            if start >= x.end {
+                break;
+            }
+            after = true;
+            self.0.remove(&start);
+            if end > x.end {
+                self.0.insert(x.end, end);
+                break;
             }
         }
-
-        // Collect ranges to insert after extraction
-        let mut to_insert = Vec::new();
-
-        // Use extract_if to remove all overlapping successors
-        self.0
-            .extract_if(.., |&start, &mut end| {
-                if start >= x.end {
-                    false // Past the removal range
-                } else if start >= x.start {
-                    // This range overlaps with x
-                    modified = true;
-                    if end > x.end {
-                        // Partial overlap - keep the part after x.end
-                        to_insert.push((x.end, end));
-                    }
-                    true // Remove this entry
-                } else {
-                    false
-                }
-            })
-            .for_each(drop);
-
-        // Insert any remaining portions
-        for (start, end) in to_insert {
-            self.0.insert(start, end);
-        }
-
-        modified
+        before || after
     }
+
+    // pub fn remove(&mut self, x: Range<u64>) -> bool {
+    //     if x.is_empty() {
+    //         return false;
+    //     }
+
+    //     let mut modified = false;
+
+    //     // Handle predecessor
+    //     if let Some((start, end)) = self.pred(x.start) {
+    //         if end > x.start {
+    //             self.0.remove(&start);
+    //             modified = true;
+    //             if start < x.start {
+    //                 self.0.insert(start, x.start);
+    //             }
+    //             if end > x.end {
+    //                 self.0.insert(x.end, end);
+    //                 return true; // Short-circuit
+    //             }
+    //         }
+    //     }
+
+    //     // Collect ranges to insert after extraction
+    //     let mut to_insert = Vec::new();
+
+    //     // Use extract_if to remove all overlapping successors
+    //     self.0
+    //         .extract_if(.., |&start, &mut end| {
+    //             if start >= x.end {
+    //                 false // Past the removal range
+    //             } else if start >= x.start {
+    //                 // This range overlaps with x
+    //                 modified = true;
+    //                 if end > x.end {
+    //                     // Partial overlap - keep the part after x.end
+    //                     to_insert.push((x.end, end));
+    //                 }
+    //                 true // Remove this entry
+    //             } else {
+    //                 false
+    //             }
+    //         })
+    //         .for_each(drop);
+
+    //     // Insert any remaining portions
+    //     for (start, end) in to_insert {
+    //         self.0.insert(start, end);
+    //     }
+
+    //     modified
+    // }
 
     /// Add a range to the set, returning the intersection of current ranges with the new one
     pub fn replace(&mut self, mut range: Range<u64>) -> Replace<'_> {

@@ -509,9 +509,45 @@ async fn drop_read_after_connection_timeout_error() {
 
     server_task.await.unwrap();
 }
-// # notes
-// - read_to_end() is designed to wait for ALL data (DEBATBLE)
-// - accept_uni() isn't returning until there's data to read (DEBATABLE)
+
+#[tokio::test]
+async fn drop_read_after_reset_error() {
+    let _guard = subscribe();
+    let endpoint_factory = EndpointFactory::new();
+
+    let server = endpoint_factory.endpoint();
+    let server_address = server.local_addr();
+    let client = endpoint_factory.endpoint();
+
+    let server_task = tokio::spawn(async move {
+        let new_conn = server.accept().await.unwrap().await.unwrap();
+        let mut s = new_conn.accept_uni().await.unwrap();
+
+        let mut buf = [0u8; 64];
+        s.read(&mut buf).await.unwrap();
+
+        let r = tokio::time::timeout(Duration::from_millis(1), s.read(&mut buf)).await;
+        assert!(r.is_err());
+    });
+
+    let new_conn = client
+        .connect(server_address.unwrap(), "localhost")
+        .unwrap()
+        .await
+        .unwrap();
+
+    let mut stream = new_conn.open_uni().await.unwrap();
+    let data = b"you a bitch, bitch";
+    stream.write_all(data).await.unwrap();
+
+    stream.reset(0_u32.into()).unwrap();
+
+    tokio::time::sleep(Duration::from_millis(5000)).await;
+
+    drop(stream);
+
+    server_task.await.unwrap();
+}
 
 #[tokio::test]
 async fn test_blocked_readers() {

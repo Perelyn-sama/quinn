@@ -659,7 +659,6 @@ impl Future for Read<'_> {
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         let this = self.get_mut();
         let ready = this.stream.poll_read_buf(cx, &mut this.buf);
-        dbg!(&ready);
         ready!(ready)?;
         match this.buf.filled().len() {
             0 if this.buf.capacity() != 0 => Poll::Ready(Ok(None)),
