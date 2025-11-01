@@ -301,6 +301,35 @@ async fn drop_read_stream() {
 }
 
 #[tokio::test]
+async fn version_negotiate_test() {
+    use crate::{ClientConfig, Endpoint, ServerConfig};
+    use std::net::SocketAddr;
+    use std::sync::Arc;
+
+    let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+
+    // Setup server
+    let server_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let server_config = ServerConfig::new(crypto, token_key); // Your server config
+    let server = Endpoint::server(server_config, server_addr).unwrap();
+    let server_addr = server.local_addr().unwrap();
+
+    // Setup client
+    let client_config = ClientConfig::new(crypto); // Your client config
+    let mut client_endpoint = Endpoint::client("127.0.0.1:0".parse().unwrap()).unwrap();
+    client_endpoint.set_default_client_config(client_config);
+
+    // Attempt connection - version negotiation happens automatically
+    let connection_result = client_endpoint
+        .connect(server_addr, "localhost")
+        .unwrap()
+        .await;
+
+    // With standard QUIC versions, this should succeed
+    assert!(connection_result.is_ok());
+}
+
+#[tokio::test]
 async fn drop_unread_stream_before_close() {
     let _guard = subscribe();
     let endpoint_factory = EndpointFactory::new();
@@ -523,13 +552,12 @@ async fn drop_read_after_reset_error() {
         let new_conn = server.accept().await.unwrap().await.unwrap();
         let mut s = new_conn.accept_uni().await.unwrap();
 
+        s.received_reset().await.unwrap();
+
         let mut buf = [0u8; 64];
         assert!(s.read(&mut buf).await.is_err());
 
         drop(s);
-
-        // let r = tokio::time::timeout(Duration::from_millis(1), s.read(&mut buf)).await;
-        // assert!(r.is_err());
     });
 
     let new_conn = client
@@ -551,6 +579,23 @@ async fn drop_read_after_reset_error() {
     server_task.await.unwrap();
 }
 
+// issue, although I get blocked readers now, all data read is false
+// since you have fucking blocked readers, just fucking wake them up, that should read the entire stream yeah? since they're two, wake just one and the other should appear after you drop the stream while all data is read
+// easy peasy you fucktard
+// [quinn/src/recv_stream.rs:541:9] &conn.blocked_readers = {
+//     StreamId(
+//         2,
+//     ): Waker {
+//         data: 0x000000011cf05c80,
+//         vtable: 0x0000000102c64a88,
+//     },
+// }
+// [quinn/src/recv_stream.rs:543:9] conn.blocked_readers.get(&self.stream) = Some(
+//     Waker {
+//         data: 0x000000011cf05c80,
+//         vtable: 0x0000000102c64a88,
+//     },
+// )
 #[tokio::test]
 async fn test_blocked_readers() {
     let _guard = subscribe();

@@ -325,6 +325,7 @@ impl RecvStream {
                 }
                 Ok(Some(error_code)) => {
                     dbg!("this bitch return some(err), tf?");
+                    dbg!(error_code);
                     // Stream state has just now been freed, so the connection may need to issue new
                     // stream ID flow control credit
                     conn.wake();

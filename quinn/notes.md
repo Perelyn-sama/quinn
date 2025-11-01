@@ -26,3 +26,29 @@
 
   Looking at src/recv_stream.rs:393, when a connection error occurs during a read, it's surfaced as ReadError::ConnectionLost(ConnectionError), so any of the
   post-handshake connection errors above would manifest through this code path.
+
+
+// we've been dropping stream, what happens if we drop conn then try to do a read?
+impl Drop for ConnectionRef {
+    fn drop(&mut self) {
+        let conn = &mut *self.state.lock("drop");
+        if let Some(x) = conn.ref_count.checked_sub(1) {
+            conn.ref_count = x;
+            if x == 0 && !conn.inner.is_closed() {
+                // If the driver is alive, it's just it and us, so we'd better shut it down. If it's
+                // not, we can't do any harm. If there were any streams being opened, then either
+                // the connection will be closed for an unrelated reason or a fresh reference will
+                // be constructed for the newly opened stream.
+                conn.implicit_close(&self.shared);
+            }
+        }
+    }
+}
+// its drop close all the connections open, so it'll just be conn.close
+// fuck
+
+
+* CidsExhausted
+all we need to do is exhaust the all the connections we can use in one endpoint
+- how many connections can I use in one endpoint?
+assumption - reading the code, I'm not sure we can trigger ConnectionError::CidsExhausted after a read. CidsExhausted occurs when we run out of connection ids and the only point I've seen that this is checked is in Endpoint.accept() which we use at the start of a making connection on the server side

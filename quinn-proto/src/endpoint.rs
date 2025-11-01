@@ -523,6 +523,7 @@ impl Endpoint {
         buf: &mut Vec<u8>,
         server_config: Option<Arc<ServerConfig>>,
     ) -> Result<(ConnectionHandle, Connection), Box<AcceptError>> {
+        dbg!("yeah, quinn calls this");
         let remote_address_validated = incoming.remote_address_validated();
         incoming.improper_drop_warner.dismiss();
         let incoming_buffer = self.incoming_buffers.remove(incoming.incoming_idx);
