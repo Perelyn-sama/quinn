@@ -301,35 +301,6 @@ async fn drop_read_stream() {
 }
 
 #[tokio::test]
-async fn version_negotiate_test() {
-    use crate::{ClientConfig, Endpoint, ServerConfig};
-    use std::net::SocketAddr;
-    use std::sync::Arc;
-
-    let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-
-    // Setup server
-    let server_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
-    let server_config = ServerConfig::new(crypto, token_key); // Your server config
-    let server = Endpoint::server(server_config, server_addr).unwrap();
-    let server_addr = server.local_addr().unwrap();
-
-    // Setup client
-    let client_config = ClientConfig::new(crypto); // Your client config
-    let mut client_endpoint = Endpoint::client("127.0.0.1:0".parse().unwrap()).unwrap();
-    client_endpoint.set_default_client_config(client_config);
-
-    // Attempt connection - version negotiation happens automatically
-    let connection_result = client_endpoint
-        .connect(server_addr, "localhost")
-        .unwrap()
-        .await;
-
-    // With standard QUIC versions, this should succeed
-    assert!(connection_result.is_ok());
-}
-
-#[tokio::test]
 async fn drop_unread_stream_before_close() {
     let _guard = subscribe();
     let endpoint_factory = EndpointFactory::new();
