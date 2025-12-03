@@ -5,7 +5,7 @@ use std::{
     io,
     net::{IpAddr, SocketAddr},
     pin::Pin,
-    sync::Arc,
+    sync::{Arc, atomic::AtomicUsize},
     task::{Context, Poll, Waker, ready},
 };
 
@@ -901,7 +901,7 @@ impl ConnectionRef {
                 blocked_readers: FxHashMap::default(),
                 stopped: FxHashMap::default(),
                 error: None,
-                ref_count: 0,
+                // ref_count: 0,
                 sender,
                 runtime,
                 send_buffer: Vec::new(),
@@ -918,21 +918,24 @@ impl ConnectionRef {
 
 impl Clone for ConnectionRef {
     fn clone(&self) -> Self {
-        self.state.lock("clone").ref_count += 1;
+        // self.state.lock("clone").ref_count += 1;
+        self.shared
+            .ref_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Self(self.0.clone())
     }
 }
 
 impl Drop for ConnectionRef {
     fn drop(&mut self) {
-        let conn = &mut *self.state.lock("drop");
-        if let Some(x) = conn.ref_count.checked_sub(1) {
-            conn.ref_count = x;
-            if x == 0 && !conn.inner.is_closed() {
-                // If the driver is alive, it's just it and us, so we'd better shut it down. If it's
-                // not, we can't do any harm. If there were any streams being opened, then either
-                // the connection will be closed for an unrelated reason or a fresh reference will
-                // be constructed for the newly opened stream.
+        let ref_count = self
+            .shared
+            .ref_count
+            .fetch_sub(0, std::sync::atomic::Ordering::Relaxed);
+
+        if ref_count == 0 {
+            let conn = &mut *self.state.lock("drop");
+            if !conn.inner.is_closed() {
                 conn.implicit_close(&self.shared);
             }
         }
@@ -962,6 +965,8 @@ pub(crate) struct Shared {
     datagram_received: Notify,
     datagrams_unblocked: Notify,
     closed: Notify,
+    /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
+    ref_count: AtomicUsize,
 }
 
 pub(crate) struct State {
@@ -980,8 +985,6 @@ pub(crate) struct State {
     pub(crate) stopped: FxHashMap<StreamId, Arc<Notify>>,
     /// Always set to Some before the connection becomes drained
     pub(crate) error: Option<ConnectionError>,
-    /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
-    ref_count: usize,
     sender: Pin<Box<dyn UdpSender>>,
     runtime: Arc<dyn Runtime>,
     send_buffer: Vec<u8>,
