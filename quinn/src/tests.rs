@@ -965,8 +965,8 @@ async fn stream_drop_removes_blocked_reader() {
             let mut stream = conn.accept_uni().await.unwrap();
 
             // read "hello"
-            let mut buf = [0u8; 64];
-            stream.read(&mut buf).await.unwrap();
+            let mut buf = [0u8; 5];
+            stream.read_exact(&mut buf).await.unwrap();
 
             let (waker, wake_counter) = new_count_waker();
             let mut cx = Context::from_waker(&waker);
